@@ -158,62 +158,6 @@ def config() -> argparse.Namespace:
     return args
 
 
-def early_stop(
-    trajectory: Trajectory, max_steps: int, thresholds: dict[str, int]
-) -> tuple[bool, str]:
-    """Check whether need to early stop"""
-
-    # reach the max step
-    num_steps = (len(trajectory) - 1) / 2
-    if num_steps >= max_steps:
-        return True, f"Reach max steps {max_steps}"
-
-    last_k_actions: list[Action]
-    action_seq: list[Action]
-
-    # Case: parsing failure for k times
-    k = thresholds["parsing_failure"]
-    last_k_actions = trajectory[1::2][-k:]  # type: ignore[assignment]
-    if len(last_k_actions) >= k:
-        if all(
-            [
-                action["action_type"] == ActionTypes.NONE
-                for action in last_k_actions
-            ]
-        ):
-            return True, f"Failed to parse actions for {k} times"
-
-    # Case: same action for k times
-    k = thresholds["repeating_action"]
-    last_k_actions = trajectory[1::2][-k:]  # type: ignore[assignment]
-    action_seq = trajectory[1::2]  # type: ignore[assignment]
-
-    if len(action_seq) == 0:
-        return False, ""
-
-    last_action: Action = action_seq[-1]
-
-    if last_action["action_type"] != ActionTypes.TYPE:
-        if len(last_k_actions) >= k:
-            if all(
-                [
-                    is_equivalent(action, last_action)
-                    for action in last_k_actions
-                ]
-            ):
-                return True, f"Same action for {k} times"
-
-    else:
-        # check the action sequence
-        if (
-            sum([is_equivalent(action, last_action) for action in action_seq])
-            >= k
-        ):
-            return True, f"Same typing action for {k} times"
-
-    return False, ""
-
-
 def test(
     args: argparse.Namespace,
     agent: Agent | PromptAgent | TeacherForcingAgent,
@@ -221,12 +165,6 @@ def test(
 ) -> None:
     scores = []
     action_descriptions = []
-    max_steps = args.max_steps
-
-    early_stop_thresholds = {
-        "parsing_failure": args.parsing_failure_th,
-        "repeating_action": args.repeating_action_failure_th,
-    }
 
     env = ScriptBrowserEnv(
         headless=not args.render,
@@ -286,20 +224,16 @@ def test(
 
             meta_data = {"action_history": ["None"]}
             while True:
-                early_stop_flag, stop_info = early_stop(
-                    trajectory, max_steps, early_stop_thresholds
-                )
-
-                if early_stop_flag:
-                    action = create_stop_action(f"Early stop: {stop_info}")
-                else:
-                    try:
-                        action = agent.next_action(
-                            trajectory, intent, meta_data=meta_data
-                        )
-                    except ValueError as e:
-                        # get the error message
-                        action = create_stop_action(f"ERROR: {str(e)}")
+                # prompt user for input on what next action to take
+                user_input = input("Enter action and rationale: ")
+                try:
+                    # TODO: need to modify agent to take trajectory, intent, and user input
+                    action = agent.next_action(
+                        trajectory, intent, meta_data=meta_data
+                    )
+                except ValueError as e:
+                    # get the error message
+                    action = create_stop_action(f"ERROR: {str(e)}")
 
                 trajectory.append(action)
                 

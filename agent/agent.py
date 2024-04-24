@@ -130,6 +130,7 @@ class PromptAgent(Agent):
                 "meta_data"
             ].get("force_prefix", "")
             response = f"{force_prefix}{response}"
+            print(f"response: {response}")
             n += 1
             try:
                 parsed_response = self.prompt_constructor.extract_action(
@@ -156,7 +157,64 @@ class PromptAgent(Agent):
     def reset(self, test_config_file: str) -> None:
         pass
 
+class UserGuidedAgent(Agent):
+    """prompt based agent that takes user input at each timestep and emits action given the history in the same form as PromptAgent"""
+    @beartype
+    def __init__(
+        self,
+        action_set_tag: str,
+        lm_config: lm_config.LMConfig,
+        prompt_constructor: PromptConstructor,
+    ) -> None:
+        super().__init__()
+        self.lm_config = lm_config
+        self.prompt_constructor = prompt_constructor
+        self.action_set_tag = action_set_tag
+        self.default_agent= PromptAgent(action_set_tag, lm_config, prompt_constructor)
 
+    def set_action_set_tag(self, tag: str) -> None:
+        self.action_set_tag = tag
+    @beartype
+    def next_action(
+        self, trajectory: Trajectory, intent: str, meta_data: dict[str, Any], confirm: bool = True
+    ) -> Action:
+        #?: Can we just concatenate the user input to the intent? e.g. intent...The next step should be xyz because xyz.
+        user_input: str = input("Please provide the next action with rationale: ")
+        # if user_input is None, just continue with default operation
+            prompt = self.prompt_constructor.construct(
+                trajectory, intent, meta_data
+            )
+            lm_config = self.lm_config
+            n = 0
+            while True:
+                response = call_llm(lm_config, prompt)
+                force_prefix = self.prompt_constructor.instruction[
+                    "meta_data"
+                ].get("force_prefix", "")
+                response = f"{force_prefix}{response}"
+                print(f"response: {response}")
+                n += 1
+                try:
+                    parsed_response = self.prompt_constructor.extract_action(
+                        response
+                    )
+                    if self.action_set_tag == "id_accessibility_tree":
+                        action = create_id_based_action(parsed_response)
+                    elif self.action_set_tag == "playwright":
+                        action = create_playwright_action(parsed_response)
+                    else:
+                        raise ValueError(
+                            f"Unknown action type {self.action_set_tag}"
+                        )
+                    action["raw_prediction"] = response
+                    break
+                except ActionParsingError as e:
+                    if n >= lm_config.gen_config["max_retry"]:
+                        action = create_none_action()
+                        action["raw_prediction"] = response
+                        break
+
+        return action 
 def construct_agent(args: argparse.Namespace) -> Agent:
     llm_config = lm_config.construct_llm_config(args)
 
@@ -175,8 +233,22 @@ def construct_agent(args: argparse.Namespace) -> Agent:
             lm_config=llm_config,
             prompt_constructor=prompt_constructor,
         )
+    elif args.agent_type == "user_guided":
+        with open(args.instruction_path) as f:
+            constructor_type = json.load(f)["meta_data"]["prompt_constructor"]
+        tokenizer = Tokenizer(args.provider, args.model)
+        prompt_constructor = eval(constructor_type)(
+            args.instruction_path, lm_config=llm_config, tokenizer=tokenizer
+        )
+        agent = UserGuidedAgent(
+            action_set_tag=args.action_set_tag,
+            lm_config=llm_config,
+            prompt_constructor=prompt_constructor,
+        )
     else:
         raise NotImplementedError(
             f"agent type {args.agent_type} not implemented"
         )
     return agent
+
+

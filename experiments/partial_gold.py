@@ -220,7 +220,6 @@ def test(
     config_file_list: list[str],
 ) -> None:
     scores = []
-    action_descriptions = []
     max_steps = args.max_steps
 
     early_stop_thresholds = {
@@ -302,7 +301,6 @@ def test(
                         action = create_stop_action(f"ERROR: {str(e)}")
 
                 trajectory.append(action)
-                
 
                 action_str = get_action_description(
                     action,
@@ -317,14 +315,6 @@ def test(
                 )
                 meta_data["action_history"].append(action_str)
 
-                # convert action to be json serializable
-                action_json_serializable = {
-                    k: v
-                    for k, v in action.items()
-                    if k not in ["coords"]
-                }
-                action_json_serializable["coords"] = action["coords"].tolist()
-                action_descriptions.append(action_json_serializable)
                 if action["action_type"] == ActionTypes.STOP:
                     break
 
@@ -356,10 +346,6 @@ def test(
                 env.save_trace(
                     Path(args.result_dir) / "traces" / f"{task_id}.zip"
                 )
-                with open(
-                    Path(args.result_dir) / f"{task_id}.json", "w"
-                ) as f:
-                    json.dump(action_descriptions, f, indent=4)
 
         except openai.error.OpenAIError as e:
             logger.info(f"[OpenAI Error] {repr(e)}")
@@ -442,7 +428,7 @@ if __name__ == "__main__":
         logger.info("No task left to run")
     else:
         print(f"Total {len(test_file_list)} tasks left")
-        args.render = True
+        args.render = False
         args.render_screenshot = True
         args.save_trace_enabled = True
 
