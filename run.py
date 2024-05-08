@@ -8,6 +8,7 @@ import random
 import subprocess
 import tempfile
 import time
+import copy
 from pathlib import Path
 
 import openai
@@ -34,6 +35,9 @@ from browser_env.helper_functions import (
     get_action_description,
 )
 from evaluation_harness import evaluator_router
+
+import numpy.typing as npt
+import numpy as np
 
 LOG_FOLDER = "log_files"
 Path(LOG_FOLDER).mkdir(parents=True, exist_ok=True)
@@ -214,13 +218,18 @@ def early_stop(
     return False, ""
 
 
+def ndarray_to_list(v):
+    if isinstance(v, np.ndarray):
+        return v.tolist()
+    return v
+
 def test(
     args: argparse.Namespace,
     agent: Agent | PromptAgent | TeacherForcingAgent,
     config_file_list: list[str],
 ) -> None:
     scores = []
-    action_descriptions = []
+    history = []
     max_steps = args.max_steps
 
     early_stop_thresholds = {
@@ -246,7 +255,6 @@ def test(
             render_helper = RenderHelper(
                 config_file, args.result_dir, args.action_set_tag
             )
-
             # get intent
             with open(config_file) as f:
                 _c = json.load(f)
@@ -290,6 +298,8 @@ def test(
                     trajectory, max_steps, early_stop_thresholds
                 )
 
+                obs = trajectory[-1]["observation"][agent.prompt_constructor.obs_modality]  
+
                 if early_stop_flag:
                     action = create_stop_action(f"Early stop: {stop_info}")
                 else:
@@ -300,6 +310,15 @@ def test(
                     except ValueError as e:
                         # get the error message
                         action = create_stop_action(f"ERROR: {str(e)}")
+
+                try:
+                    parsed_response = agent.prompt_constructor.extract_action(
+                        action["raw_prediction"]
+                    )
+                except ActionParsingError as e:
+                    print("Unexpected error:", e)
+                    time.sleep(1)
+                    continue
 
                 trajectory.append(action)
                 
@@ -316,21 +335,31 @@ def test(
                     action, state_info, meta_data, args.render_screenshot
                 )
                 meta_data["action_history"].append(action_str)
+                
+                         
 
-                # convert action to be json serializable
-                action_json_serializable = {
-                    k: v
-                    for k, v in action.items()
-                    if k not in ["coords"]
-                }
-                action_json_serializable["coords"] = action["coords"].tolist()
-                action_descriptions.append(action_json_serializable)
+                history.append({
+                    "action": action,
+                    "intent": intent,
+                    "meta_data": copy.deepcopy(meta_data),
+                    "obs": str(obs),
+                    "parsed_response": parsed_response,
+                    "url": env.page.url
+                })
+
+
                 if action["action_type"] == ActionTypes.STOP:
                     break
 
                 obs, _, terminated, _, info = env.step(action)
                 state_info = {"observation": obs, "info": info}
                 trajectory.append(state_info)
+
+                if args.save_trace_enabled:
+                    with open(
+                        Path(args.result_dir) / f"{task_id}.json", "w"
+                    ) as f:
+                        json.dump(history, f, indent=4, default=ndarray_to_list)
 
                 if terminated:
                     # add a action place holder
@@ -344,13 +373,14 @@ def test(
                 page=env.page,
                 client=env.get_page_client(env.page),
             )
-
+            history.append({"score": score})
             scores.append(score)
 
             if score == 1:
                 logger.info(f"[Result] (PASS) {config_file}")
             else:
                 logger.info(f"[Result] (FAIL) {config_file}")
+
 
             if args.save_trace_enabled:
                 env.save_trace(
@@ -359,7 +389,7 @@ def test(
                 with open(
                     Path(args.result_dir) / f"{task_id}.json", "w"
                 ) as f:
-                    json.dump(action_descriptions, f, indent=4)
+                    json.dump(history, f, indent=4, default=ndarray_to_list)
 
         except openai.error.OpenAIError as e:
             logger.info(f"[OpenAI Error] {repr(e)}")

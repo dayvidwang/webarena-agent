@@ -167,6 +167,8 @@ class DirectPromptConstructor(PromptConstructor):
         examples = self.instruction["examples"]
         template = self.instruction["template"]
         keywords = self.instruction["meta_data"]["keywords"]
+
+        
         state_info: StateInfo = trajectory[-1]  # type: ignore[assignment]
 
         obs = state_info["observation"][self.obs_modality]
@@ -240,6 +242,72 @@ class CoTPromptConstructor(PromptConstructor):
             url=self.map_url_to_real(url),
             observation=obs,
             previous_action=previous_action_str,
+        )
+
+        assert all([f"{{k}}" not in current for k in keywords])
+
+        prompt = self.get_lm_api_input(intro, examples, current)
+        return prompt
+
+    def _extract_action(self, response: str) -> str:
+        # find the first occurence of action
+        action_splitter = self.instruction["meta_data"]["action_splitter"]
+        pattern = rf"{action_splitter}((.|\n)*?){action_splitter}"
+        match = re.search(pattern, response)
+        if match:
+            return match.group(1).strip()
+        else:
+            raise ActionParsingError(
+                f'Cannot find the answer phrase "{self.answer_phrase}" in "{response}"'
+            )
+        
+class GuidedPromptConstructor(PromptConstructor):
+    """The agent will perform step-by-step reasoning before the answer"""
+
+    def __init__(
+        self,
+        instruction_path: str | Path,
+        lm_config: lm_config.LMConfig,
+        tokenizer: Tokenizer,
+    ):
+        super().__init__(instruction_path, lm_config, tokenizer)
+        self.answer_phrase = self.instruction["meta_data"]["answer_phrase"]
+
+    def construct(
+        self,
+        trajectory: Trajectory,
+        intent: str,
+        meta_data: dict[str, Any] = {},
+    ) -> APIInput:
+        intro = self.instruction["intro"]
+        examples = self.instruction["examples"]
+        template = self.instruction["template"]
+        keywords = self.instruction["meta_data"]["keywords"]
+        state_info: StateInfo = trajectory[-1]  # type: ignore[assignment]
+
+        # assert that 'guidance' is in keywords
+        if "guidance" not in keywords:
+            raise ValueError("The keyword 'guidance' is required in keywords")
+        
+        if "guidance" not in meta_data:
+            raise ValueError("The meta_data should contain 'guidance'")
+
+        guidance = meta_data["guidance"]
+
+        obs = state_info["observation"][self.obs_modality]
+        max_obs_length = self.lm_config.gen_config["max_obs_length"]
+        if max_obs_length:
+            obs = self.tokenizer.decode(self.tokenizer.encode(obs)[:max_obs_length])  # type: ignore[arg-type]
+
+        page = state_info["info"]["page"]
+        url = page.url
+        previous_action_str = meta_data["action_history"][-1]
+        current = template.format(
+            objective=intent,
+            url=self.map_url_to_real(url),
+            observation=obs,
+            previous_action=previous_action_str,
+            guidance=guidance
         )
 
         assert all([f"{{k}}" not in current for k in keywords])

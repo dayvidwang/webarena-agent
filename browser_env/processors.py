@@ -366,9 +366,12 @@ class TextObervationProcessor(ObservationProcessor):
         client: CDPSession,
         current_viewport_only: bool,
     ) -> AccessibilityTree:
+        
+        # THIS IS WHERE ACCESSIBILITY TREE IS FETCHED
         accessibility_tree: AccessibilityTree = client.send(
             "Accessibility.getFullAXTree", {}
         )["nodes"]
+
 
         # a few nodes are repeated in the accessibility tree
         seen_ids = set()

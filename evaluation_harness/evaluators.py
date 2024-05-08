@@ -105,6 +105,7 @@ class StringEvaluator(Evaluator):
             and len(clean_ref) == 1
             and len(word_tokenize(clean_ref)) == 1
         ):
+            # TODO: THIS MUST BE FIXED TO ACCOUNT FOR " |OR| "
             tok_pred = word_tokenize(clean_pred)
             return float(clean_ref in tok_pred)
         else:

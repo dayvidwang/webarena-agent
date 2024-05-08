@@ -106,6 +106,7 @@ class Action(TypedDict):
     pw_code: str
     answer: str
     raw_prediction: str  # raw prediction from the model
+    guidance: str
 
 
 @beartype

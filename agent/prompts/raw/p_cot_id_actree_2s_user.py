@@ -79,7 +79,7 @@ GUIDANCE: {guidance}""",
 		"observation": "accessibility_tree",
 		"action_type": "id_accessibility_tree",
 		"keywords": ["url", "objective", "observation", "previous_action", "guidance"],
-		"prompt_constructor": "CoTPromptConstructor",
+		"prompt_constructor": "GuidedPromptConstructor",
 		"answer_phrase": "In summary, the next action I will perform is",
 		"action_splitter": "```"
 	},
