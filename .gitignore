@@ -165,3 +165,7 @@ finetuning/*
 finetune_pre.py
 current_state.txt
 temp.txt
+
+*.html
+node_modules/*
+919_gpt4_8k_cot/
